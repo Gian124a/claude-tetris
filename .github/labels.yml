@@ -1,0 +1,54 @@
+# Catálogo de labels del proyecto para el triage automático de issues.
+# El workflow `.github/workflows/claude-issue-triage.yml` sincroniza este
+# archivo con los labels reales del repositorio antes de cada análisis.
+#
+# Los 9 labels por defecto de GitHub (bug, documentation, duplicate,
+# enhancement, good first issue, help wanted, invalid, question, wontfix)
+# ya existen en el repo y no se listan aquí.
+
+# Área funcional (mapea a las secciones de arquitectura descritas en CLAUDE.md)
+- name: "area:gameplay"
+  color: "1d76db"
+  description: "Piezas, rotación, colisiones, wall kicks, ghost piece"
+
+- name: "area:render"
+  color: "5319e7"
+  description: "Canvas, draw(), drawNext(), estilos visuales"
+
+- name: "area:controles"
+  color: "0e8a16"
+  description: "Teclado, input, pausa, reinicio"
+
+- name: "area:puntuacion"
+  color: "fbca04"
+  description: "Score, líneas, nivel, dropInterval"
+
+- name: "area:ui"
+  color: "c2e0c6"
+  description: "HTML/CSS, layout, textos, responsive"
+
+- name: "area:build"
+  color: "bfd4f2"
+  description: "Workflows, CI, configuración del repo"
+
+# Prioridad
+- name: "prioridad:alta"
+  color: "b60205"
+  description: "Bloquea el juego o lo hace injugable"
+
+- name: "prioridad:media"
+  color: "d93f0b"
+  description: "Afecta la experiencia pero hay workaround"
+
+- name: "prioridad:baja"
+  color: "fef2c0"
+  description: "Cosmético o mejora menor"
+
+# Estado del triage automático
+- name: "triage:analizado"
+  color: "ededed"
+  description: "Claude ya publicó un diagnóstico"
+
+- name: "triage:necesita-info"
+  color: "d876e3"
+  description: "Falta información para diagnosticar"

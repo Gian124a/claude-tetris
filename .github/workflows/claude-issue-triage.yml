@@ -1,0 +1,147 @@
+name: Triage de issues con Claude
+
+on:
+  issues:
+    types: [opened, edited]
+
+concurrency:
+  group: triage-issue-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  triage:
+    # Evita bucles: ignora ediciones/creaciones hechas por bots (incl. el propio Claude)
+    if: github.event.sender.type != 'Bot'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write # necesario para aplicar labels y comentar
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Sincronizar labels del proyecto
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="${{ github.repository }}"
+          count=$(yq eval '. | length' .github/labels.yml)
+          for i in $(seq 0 $((count - 1))); do
+            name=$(yq eval ".[$i].name" .github/labels.yml)
+            color=$(yq eval ".[$i].color" .github/labels.yml)
+            description=$(yq eval ".[$i].description" .github/labels.yml)
+            gh label create "$name" \
+              --repo "$repo" \
+              --color "$color" \
+              --description "$description" \
+              --force
+          done
+
+      - name: Ejecutar Claude para triage
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: |
+            --allowed-tools "Read,Grep,Glob,Bash(gh issue view:*),Bash(gh issue edit:*),Bash(gh issue comment:*),Bash(gh label list:*),Bash(gh api:*)"
+          prompt: |
+            Eres el encargado de hacer triage automático del issue #${{ github.event.issue.number }}
+            en el repositorio ${{ github.repository }}. Este evento es de tipo
+            "${{ github.event.action }}" (opened = issue recién creado, edited = título o
+            cuerpo editados).
+
+            El proyecto es un Tetris clásico en JavaScript vanilla. Lee CLAUDE.md primero:
+            describe la arquitectura completa de game.js (tablero, piezas, rotación,
+            wall kicks, colisión, ghost piece, loop de juego, líneas/nivel, puntuación,
+            render) y es tu mapa para localizar el código relevante.
+
+            Sigue estos pasos exactamente:
+
+            1. LEER el issue completo:
+               gh issue view ${{ github.event.issue.number }} --repo ${{ github.repository }} \
+                 --json title,body,labels,comments
+
+            2. INVESTIGAR el código implicado usando Read/Grep/Glob sobre game.js,
+               index.html y style.css. Identifica funciones y líneas concretas
+               relacionadas con lo que describe el issue. Cita siempre como
+               `archivo:línea`.
+
+            3. CLASIFICAR con labels reales (nunca inventes nombres de labels):
+               - Obtén la lista real: gh label list --repo ${{ github.repository }}
+               - Asigna exactamente UN label de tipo: bug | enhancement | question | documentation
+               - Asigna exactamente UN label de área: area:gameplay | area:render |
+                 area:controles | area:puntuacion | area:ui | area:build
+               - Asigna exactamente UN label de prioridad: prioridad:alta | prioridad:media |
+                 prioridad:baja
+               - Si el issue no tiene información suficiente para diagnosticar con
+                 confianza, añade también triage:necesita-info y sé explícito en el
+                 diagnóstico sobre qué falta.
+               - Al terminar, añade triage:analizado.
+               - Aplica los cambios con: gh issue edit ${{ github.event.issue.number }} \
+                 --repo ${{ github.repository }} --add-label "..."
+               - No quites labels que haya puesto una persona. Si ya existen labels
+                 area:*/prioridad:* de un análisis previo tuyo y tu nuevo análisis
+                 concluye algo distinto, quita el label anterior de esa misma categoría
+                 y pon el nuevo (gh issue edit ... --remove-label "..." --add-label "...").
+
+            4. DIAGNOSTICAR: redacta un comentario en Markdown con exactamente esta
+               estructura (rellena cada sección, no dejes placeholders):
+
+               <!-- claude-triage-diagnostico -->
+               ## 🔍 Diagnóstico automático
+
+               **Clasificación:** <tipo> · <area> · <prioridad>
+
+               ### Resumen
+               <qué se pide o qué falla, 2-3 líneas>
+
+               ### Causa probable
+               <hipótesis técnica; si es una feature nueva, qué falta hoy en el código>
+
+               ### Código implicado
+               - `archivo:línea` — `nombreFuncion()`: <por qué es relevante>
+
+               ### Enfoque de solución propuesto
+               1. <paso concreto>
+               2. <paso concreto>
+
+               ### Criterios de aceptación
+               - [ ] <criterio verificable manualmente en el navegador>
+
+               ### Riesgos y efectos colaterales
+               <qué se puede romper con el cambio propuesto>
+
+               ---
+               <sub>Generado automáticamente. Última actualización: <fecha actual> ·
+               commit ${{ github.sha }} (corto: primeros 7 caracteres)</sub>
+
+               Si aplicaste triage:necesita-info, reemplaza "Enfoque de solución
+               propuesto" por una lista de las preguntas concretas que necesitas
+               que el autor responda, y dilo también en el Resumen.
+
+            5. PUBLICAR O ACTUALIZAR (importante, evita duplicados):
+               - Busca en los comentarios existentes (los que ya leíste en el paso 1,
+                 o vuelve a listarlos con gh api) uno cuyo cuerpo contenga el marcador
+                 exacto `<!-- claude-triage-diagnostico -->`.
+               - Si existe: actualízalo en el mismo comentario, no crees uno nuevo:
+                 gh api --method PATCH \
+                   -H "Accept: application/vnd.github+json" \
+                   /repos/${{ github.repository }}/issues/comments/<ID_DEL_COMENTARIO> \
+                   -f body=@archivo_con_el_comentario.md
+               - Si no existe: créalo:
+                 gh issue comment ${{ github.event.issue.number }} \
+                   --repo ${{ github.repository }} --body-file archivo_con_el_comentario.md
+               - Escribe siempre primero el cuerpo del comentario a un archivo
+                 temporal (usa la herramienta Write) y pásalo con --body-file /
+                 -f body=@archivo para evitar problemas de escapado en el shell.
+
+            Restricciones estrictas:
+            - No modifiques ningún archivo de código (game.js, index.html, style.css).
+            - No abras pull requests.
+            - No cierres ni reabras el issue.
+            - No comentes nada fuera de la plantilla de diagnóstico anterior.
