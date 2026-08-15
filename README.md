@@ -42,6 +42,8 @@ Es una versión jugable del Tetris clásico con todas las mecánicas que esperar
 - **Sistema de puntuación** clásico de Tetris (100 / 300 / 500 / 800 multiplicado por nivel).
 - **Niveles** que aumentan cada 10 líneas y aceleran la caída.
 - **Pausa** y **Game Over** con opción de reinicio.
+- **Skins visuales**: 4 estilos de dibujado (Retro, Neón, Pastel, Pixel art) seleccionables sin reiniciar la partida, persistidos en `localStorage`.
+- **Tabla de records local**: top 5 puntuaciones guardadas en `localStorage`, con nombre, líneas, combo máximo y fecha. Pantalla de inicio con la tabla, las estadísticas globales derivadas de esas 5 entradas guardadas (mejor combo y máximo de líneas) y botón para resetear los records.
 
 ---
 
@@ -84,7 +86,9 @@ Después abre `http://localhost:8000` en el navegador.
 | `↑` o `X` | Rotar la pieza en sentido horario |
 | `↓`       | Soft drop (bajar más rápido)      |
 | `Espacio` | Hard drop (caída instantánea)     |
-| `P`       | Pausar / reanudar                 |
+| `P` / `Esc` | Pausar / reanudar                |
+
+Al pausar se abre un **menú de pausa** con opciones para reanudar, reiniciar la partida, ver la lista de controles y elegir el nivel inicial (1–15, se recuerda entre partidas).
 
 ---
 
@@ -97,8 +101,8 @@ El juego se compone de tres archivos que cooperan:
 Define la estructura visual:
 
 - Un `<canvas id="board">` de **300 × 600** píxeles donde se renderiza el tablero.
-- Un panel lateral con `SCORE`, `LINES`, `LEVEL`, vista de la siguiente pieza y la lista de controles.
-- Un overlay para los estados **PAUSA** y **GAME OVER**.
+- Un panel lateral con `SCORE`, `LINES`, `LEVEL`, vista de la siguiente pieza, el selector de `SKIN` y la lista de controles.
+- Un overlay para el estado **GAME OVER** y un menú de pausa (`#pause-menu`) independiente con sus opciones.
 
 ### 2. `style.css`
 
@@ -108,8 +112,14 @@ Aporta el aspecto visual con estética _dark / retro arcade_: fondo oscuro, tipo
 
 Contiene toda la lógica del juego. A grandes rasgos:
 
-- **Modelo del tablero**: una matriz `ROWS × COLS` donde cada celda guarda `0` (vacía) o un índice de color (1–7) que identifica la pieza.
-- **Piezas**: definidas como matrices cuadradas. Para rotar se calcula la transposición + reverso de filas (`rotateCW`).
+- **Modelo del tablero**: una matriz `ROWS × COLS` donde cada celda guarda `0` (vacía), un índice de color (1–8) que identifica la pieza, o `9` (comodín dorado, ver Power-ups).
+- **Piezas**: definidas como matrices cuadradas. Para rotar se calcula la transposición + reverso de filas (`rotateCW`). Además de las 7 piezas clásicas hay una **tuerca** (`NUT`, 3×3 con el centro vacío): un reto ocasional (`NUT_CHANCE`, 1/12 por defecto) cuyo agujero central es una celda vacía real e inaccesible — bloquea la fila hasta que se limpian las filas por encima.
+- **Power-ups**: piezas especiales de 1×1 (`POWERUP_CHANCE`, 1/5 por defecto) que, al asentarse, ejecutan un efecto (`applyPower`) en vez de fusionarse con el tablero:
+  - 💣 **Bomba**: destruye el área 3×3 centrada en su posición.
+  - ⚡ **Rayo**: limpia la fila y la columna donde cae (no cuenta como línea completada).
+  - 🎨 **Tinte**: convierte todos los bloques del color más abundante del tablero en **comodines** dorados (`WILD`); al completarse cualquier línea, todos los comodines estallan y el tablero se compacta con gravedad (posible cascada de líneas).
+  - ⬇️ **Gravedad** (`applyGravity`): compacta cada columna hacia abajo, eliminando huecos.
+  - ❄️ **Congelar**: detiene la caída durante `FREEZE_MS` (5 s) sin bloquear el movimiento ni la rotación.
 - **Detección de colisiones** (`collide`): comprueba que ninguna celda de la pieza salga del tablero ni se solape con bloques ya fijados.
 - **Wall kicks** (`tryRotate`): si la rotación choca, intenta desplazar la pieza ±1 y ±2 columnas antes de descartar el giro.
 - **Game loop** (`loop`): basado en `requestAnimationFrame`, acumula el tiempo transcurrido y baja la pieza una fila cuando se supera `dropInterval`.
@@ -117,6 +127,18 @@ Contiene toda la lógica del juego. A grandes rasgos:
 - **Puntuación**: usa la tabla clásica `[0, 100, 300, 500, 800]` multiplicada por el nivel actual; el hard drop suma 2 puntos por celda recorrida y el soft drop 1 punto por fila.
 - **Nivel y velocidad**: el nivel sube cada 10 líneas; la velocidad de caída se calcula como `max(100, 1000 − (level − 1) × 90)` milisegundos.
 - **Ghost piece** (`ghostY`): proyecta la posición final de la pieza actual hacia abajo y la dibuja con `globalAlpha = 0.2`.
+- **Skins visuales** (constante `SKINS`, sección `// ==== SKINS ====`): cada skin define `{ id, label, colors, boardBg, gridColor, drawBlock }` y el render se despacha a través de la skin activa (`activeSkin`) en vez de leer constantes globales fijas. `drawBlock`, `drawGrid` y `drawNutHole` delegan en la skin activa manteniendo su firma original, así `drawPiece()`, `draw()` y `drawNext()` no necesitan saber nada sobre skins.
+  - 🕹️ **Retro**: el render clásico del juego (idéntico al original), skin por defecto.
+  - 💡 **Neón**: fondo de tablero negro y efecto *glow* (`shadowBlur`/`shadowColor`) en cada bloque; usa `context.save()/restore()` para que el resplandor nunca contamine la rejilla, el ghost, el flash de power-up ni la vista NEXT.
+  - 🎀 **Pastel**: paleta de colores suaves con esquinas redondeadas (`context.roundRect()`, con *fallback* manual si el navegador no lo soporta).
+  - 🟪 **Pixel art**: textura de dithering (píxeles alternos más claros/oscuros) dibujada sobre cada bloque, respetando el tamaño de celda variable.
+  - **Convivencia con el tema claro/oscuro**: la skin manda sobre los colores del canvas (bloques, rejilla, fondo del tablero); el tema sigue mandando sobre el CSS de la página (fondo general, textos, panel). Excepción: Retro conserva el borde oscuro en los bloques cuando el tema es claro, igual que antes de existir las skins.
+  - Selector `<select id="skin-select">` en el panel lateral; al cambiar de skin se re-dibuja con `draw()` + `drawNext()` sin reiniciar la partida, y se persiste en `localStorage` bajo `SKIN_KEY = 'tetris-skin'`.
+- **Records** (`loadHighscores` / `saveHighscores`): persiste hasta 5 puntuaciones en `localStorage` (`tetris-highscores`), con lectura defensiva ante datos corruptos. Se trackea un **combo** de clears consecutivos (`combo` / `maxCombo`, reseteado en cada pieza que no completa línea) que se guarda junto a la puntuación.
+
+### Pantalla de inicio y records
+
+El juego ya no arranca solo: al cargar se muestra `#start-screen` con el título, el top 5 de puntuaciones, el mejor combo y el máximo de líneas de entre esas 5 partidas guardadas, y los botones **Jugar** y **Resetear records** (con confirmación in-page: un primer click cambia el texto a "¿Seguro?" y expira a los pocos segundos si no se confirma). Al terminar una partida (`endGame`), si la puntuación entra en el top 5 se muestra un formulario para introducir el nombre (`#records-form`) antes de guardarla; la fila recién insertada se resalta en la tabla.
 
 ### Flujo del juego
 
@@ -173,9 +195,15 @@ Algunos parámetros fáciles de tunear en `game.js`:
 | `COLS`         | Columnas del tablero                     | `10`                  |
 | `ROWS`         | Filas del tablero                        | `20`                  |
 | `BLOCK`        | Tamaño en píxeles de cada celda          | `30`                  |
-| `COLORS`       | Paleta de colores por tipo de pieza      | 7 colores             |
+| `COLORS`       | Paleta de colores por tipo de pieza      | 9 colores             |
 | `LINE_SCORES`  | Puntos por 1, 2, 3 o 4 líneas eliminadas | `[0,100,300,500,800]` |
 | `dropInterval` | Velocidad inicial de caída en ms         | `1000`                |
+| `NUT_CHANCE`   | Probabilidad de que salga la tuerca      | `1/12`                |
+| `POWERUP_CHANCE` | Probabilidad de que salga un power-up  | `1/5`                 |
+| `FREEZE_MS`    | Duración del power-up Congelar en ms     | `5000`                |
+| `POWER_CELL_SCORE` | Puntos por celda destruida por un poder (× nivel) | `10`      |
+| `SKINS`        | Skins visuales disponibles (colores, fondo, rejilla y render por bloque) | `retro`, `neon`, `pastel`, `pixel` |
+| `SKIN_KEY`     | Clave de `localStorage` para la skin elegida | `'tetris-skin'` |
 
 > Si cambias `COLS`, `ROWS` o `BLOCK`, recuerda ajustar también `width` y `height` del `<canvas id="board">` en `index.html` para que coincida (`COLS × BLOCK` × `ROWS × BLOCK`).
 
