@@ -51,6 +51,7 @@ const LINE_SCORES = [0, 100, 300, 500, 800];
 
 const GRID_COLORS = { dark: '#22222e', light: '#dfe1ea' };
 const THEME_KEY = 'tetris-theme';
+const SKIN_KEY = 'tetris-skin'; // clave de localStorage para la skin visual elegida (ver sección ==== SKINS ====)
 
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
@@ -270,22 +271,13 @@ function updateHUD() {
   }
 }
 
+// Dibuja un bloque en (x, y) celdas dentro de `context`, delegando el estilo
+// concreto a la skin visual activa (ver sección ==== SKINS ==== más abajo).
+// La firma se mantiene estable a propósito: drawPiece(), draw() y drawNext()
+// siguen llamando a esta función sin saber nada de skins.
 function drawBlock(context, x, y, colorIndex, size, alpha) {
   if (!colorIndex) return;
-  const color = COLORS[colorIndex];
-  context.globalAlpha = alpha ?? 1;
-  context.fillStyle = color;
-  context.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
-  if (theme === 'light') {
-    // los colores claros de algunas piezas pierden contraste sobre fondo blanco
-    context.strokeStyle = 'rgba(0,0,0,0.35)';
-    context.lineWidth = 1;
-    context.strokeRect(x * size + 1.5, y * size + 1.5, size - 3, size - 3);
-  }
-  // highlight
-  context.fillStyle = 'rgba(255,255,255,0.12)';
-  context.fillRect(x * size + 1, y * size + 1, size - 2, 4);
-  context.globalAlpha = 1;
+  activeSkin.drawBlock(context, x, y, colorIndex, size, alpha);
 }
 
 const BOARD_BG = { dark: '#1a1a25', light: '#ffffff' }; // deben coincidir con --board-bg de style.css
@@ -295,7 +287,7 @@ function drawNutHole(context, x, y, size, alpha) {
   context.globalAlpha = alpha ?? 1;
   context.beginPath();
   context.arc(cx, cy, r, 0, Math.PI * 2);
-  context.fillStyle = BOARD_BG[theme];
+  context.fillStyle = activeSkin.boardBg(theme); // el agujero debe fundirse con el fondo de la skin activa, no con BOARD_BG fijo
   context.fill();
   context.strokeStyle = 'rgba(0,0,0,0.45)';
   context.lineWidth = 1;
@@ -328,7 +320,7 @@ function drawPiece(context, piece, ox, oy, size, alpha) {
 }
 
 function drawGrid() {
-  ctx.strokeStyle = GRID_COLORS[theme];
+  ctx.strokeStyle = activeSkin.gridColor(theme);
   ctx.lineWidth = 0.5;
   for (let c = 1; c < COLS; c++) {
     ctx.beginPath();
@@ -399,6 +391,205 @@ function drawNext() {
   } else {
     drawPiece(nextCtx, next, offX, offY, NB);
   }
+}
+
+// ==== SKINS ====
+// Selector de skin visual: cambia el estilo de dibujado del canvas (bloques, rejilla,
+// fondo del tablero) sin tocar el estado del juego ni reiniciar la partida.
+//
+// Criterio de convivencia con el tema claro/oscuro: la SKIN manda sobre los colores
+// del canvas (bloques, rejilla, fondo del tablero); el TEMA sigue mandando sobre el
+// CSS de la página (fondo general, textos, panel lateral). La única excepción es la
+// skin "Retro", que conserva el comportamiento actual dependiente del tema (borde
+// oscuro en los bloques cuando el tema es claro), porque es la skin por defecto y
+// debe verse idéntica al juego original en ambos temas.
+//
+// Cada skin implementa `drawBlock(context, x, y, colorIndex, size, alpha)` con la
+// MISMA firma que la función global `drawBlock` (ver más arriba), así drawPiece(),
+// draw() y drawNext() no necesitan saber nada sobre skins.
+
+const skinSelect = document.getElementById('skin-select');
+
+// Aclara (percent > 0) u oscurece (percent < 0) un color hexadecimal '#rrggbb'.
+function shadeColor(hex, percent) {
+  const num = parseInt(hex.slice(1), 16);
+  const amt = Math.round(255 * (percent / 100));
+  const r = Math.max(0, Math.min(255, (num >> 16) + amt));
+  const g = Math.max(0, Math.min(255, ((num >> 8) & 0xff) + amt));
+  const b = Math.max(0, Math.min(255, (num & 0xff) + amt));
+  return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+}
+
+// ---- Retro: el render clásico del juego, sin cambios. Skin por defecto. ----
+function drawBlockRetro(context, x, y, colorIndex, size, alpha) {
+  const color = SKINS.retro.colors[colorIndex];
+  context.globalAlpha = alpha ?? 1;
+  context.fillStyle = color;
+  context.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
+  if (theme === 'light') {
+    // los colores claros de algunas piezas pierden contraste sobre fondo blanco
+    context.strokeStyle = 'rgba(0,0,0,0.35)';
+    context.lineWidth = 1;
+    context.strokeRect(x * size + 1.5, y * size + 1.5, size - 3, size - 3);
+  }
+  context.fillStyle = 'rgba(255,255,255,0.12)';
+  context.fillRect(x * size + 1, y * size + 1, size - 2, 4);
+  context.globalAlpha = 1;
+}
+
+// ---- Neón: fondo negro + efecto glow (shadowBlur/shadowColor). ----
+function drawBlockNeon(context, x, y, colorIndex, size, alpha) {
+  const color = SKINS.neon.colors[colorIndex];
+  context.save(); // save/restore garantiza que shadowBlur vuelve a 0 al salir,
+                   // aunque cambien alpha/relleno: no contamina rejilla, ghost,
+                   // el flash del power-up ni la vista NEXT.
+  context.globalAlpha = alpha ?? 1;
+  context.shadowColor = color;
+  context.shadowBlur = size * 0.5;
+  context.fillStyle = color;
+  context.fillRect(x * size + 2, y * size + 2, size - 4, size - 4);
+  context.shadowBlur = 0; // el brillo interior se dibuja nítido, sin halo
+  context.fillStyle = 'rgba(255,255,255,0.25)';
+  context.fillRect(x * size + 2, y * size + 2, size - 4, 3);
+  context.restore();
+}
+
+// ---- Pastel: paleta suave + esquinas redondeadas. ----
+function drawBlockPastel(context, x, y, colorIndex, size, alpha) {
+  const color = SKINS.pastel.colors[colorIndex];
+  context.globalAlpha = alpha ?? 1;
+  const px = x * size + 2, py = y * size + 2, s = size - 4;
+  const radius = Math.min(s / 2, Math.max(2, size * 0.18));
+  context.beginPath();
+  if (typeof context.roundRect === 'function') {
+    context.roundRect(px, py, s, s, radius);
+  } else {
+    // fallback manual para navegadores sin CanvasRenderingContext2D.roundRect
+    context.moveTo(px + radius, py);
+    context.arcTo(px + s, py, px + s, py + s, radius);
+    context.arcTo(px + s, py + s, px, py + s, radius);
+    context.arcTo(px, py + s, px, py, radius);
+    context.arcTo(px, py, px + s, py, radius);
+    context.closePath();
+  }
+  context.fillStyle = color;
+  context.fill();
+  // highlight suave superior
+  context.fillStyle = 'rgba(255,255,255,0.4)';
+  context.beginPath();
+  if (typeof context.roundRect === 'function') {
+    context.roundRect(px, py, s, Math.max(3, s * 0.3), radius);
+  } else {
+    context.rect(px, py, s, Math.max(3, s * 0.3));
+  }
+  context.fill();
+  context.globalAlpha = 1;
+}
+
+// ---- Pixel art: patrón de dithering (claro/oscuro alternado) sobre cada bloque. ----
+function drawBlockPixel(context, x, y, colorIndex, size, alpha) {
+  const color = SKINS.pixel.colors[colorIndex];
+  context.globalAlpha = alpha ?? 1;
+  const px = x * size + 1, py = y * size + 1, s = size - 2;
+  context.fillStyle = color;
+  context.fillRect(px, py, s, s);
+  const n = 4; // subdivisión del bloque en n × n "píxeles" de textura
+  const cell = s / n;
+  const light = shadeColor(color, 22);
+  const dark = shadeColor(color, -22);
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      if ((r + c) % 2 === 0) continue; // patrón tipo tablero de ajedrez (dithering)
+      context.fillStyle = r % 2 === 0 ? light : dark;
+      context.fillRect(px + c * cell, py + r * cell, Math.ceil(cell), Math.ceil(cell));
+    }
+  }
+  context.strokeStyle = shadeColor(color, -40);
+  context.lineWidth = 1;
+  context.strokeRect(px + 0.5, py + 0.5, s - 1, s - 1);
+  context.globalAlpha = 1;
+}
+
+// Cada skin cubre los índices 1–9 de COLORS (7 tetrominós + tuerca NUT=8 + comodín WILD=9).
+const SKINS = {
+  retro: {
+    id: 'retro',
+    label: 'Retro',
+    colors: COLORS,
+    boardBg: t => BOARD_BG[t],
+    gridColor: t => GRID_COLORS[t],
+    drawBlock: drawBlockRetro,
+  },
+  neon: {
+    id: 'neon',
+    label: 'Neón',
+    colors: [
+      null,
+      '#00e5ff', // I
+      '#faff00', // O
+      '#e040fb', // T
+      '#39ff14', // S
+      '#ff1744', // Z
+      '#40c4ff', // J
+      '#ff9100', // L
+      '#b0bec5', // NUT
+      '#ffea00', // WILD
+    ],
+    boardBg: () => '#000000',
+    gridColor: () => '#161625',
+    drawBlock: drawBlockNeon,
+  },
+  pastel: {
+    id: 'pastel',
+    label: 'Pastel',
+    colors: [
+      null,
+      '#a8dadc', // I
+      '#ffe8a3', // O
+      '#d9bfec', // T
+      '#b5e8b0', // S
+      '#ffb3ba', // Z
+      '#bcd4f7', // J
+      '#ffd9b3', // L
+      '#dcdde3', // NUT
+      '#fff3b0', // WILD
+    ],
+    boardBg: () => '#fdfaf5',
+    gridColor: () => '#ecebe4',
+    drawBlock: drawBlockPastel,
+  },
+  pixel: {
+    id: 'pixel',
+    label: 'Pixel art',
+    colors: COLORS,
+    boardBg: t => BOARD_BG[t],
+    gridColor: t => (t === 'light' ? '#c7c9d6' : '#2e2e42'),
+    drawBlock: drawBlockPixel,
+  },
+};
+
+let activeSkin = SKINS.retro;
+
+function applySkin(id) {
+  activeSkin = SKINS[id] || SKINS.retro;
+  if (skinSelect) skinSelect.value = activeSkin.id;
+  const bg = activeSkin.boardBg(theme);
+  canvas.style.background = bg;
+  nextCanvas.style.background = bg;
+  localStorage.setItem(SKIN_KEY, activeSkin.id);
+  if (current) {
+    draw();
+    drawNext();
+  }
+}
+
+function initSkin() {
+  const saved = localStorage.getItem(SKIN_KEY);
+  applySkin(SKINS[saved] ? saved : 'retro');
+}
+
+if (skinSelect) {
+  skinSelect.addEventListener('change', () => applySkin(skinSelect.value));
 }
 
 function endGame() {
@@ -477,6 +668,12 @@ function applyTheme(t) {
   themeToggleBtn.textContent = t === 'light' ? '🌙' : '☀️';
   themeToggleBtn.setAttribute('aria-label', t === 'light' ? 'Cambiar a tema oscuro' : 'Cambiar a tema claro');
   localStorage.setItem(THEME_KEY, t);
+  if (activeSkin) {
+    // el tema puede afectar al fondo de las skins que dependen de él (retro, pixel art)
+    const bg = activeSkin.boardBg(theme);
+    canvas.style.background = bg;
+    nextCanvas.style.background = bg;
+  }
   if (current) {
     draw();
     drawNext();
@@ -520,5 +717,6 @@ document.addEventListener('keydown', e => {
 
 restartBtn.addEventListener('click', init);
 
+initSkin();
 initTheme();
 init();

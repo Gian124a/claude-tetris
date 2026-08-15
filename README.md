@@ -42,6 +42,7 @@ Es una versión jugable del Tetris clásico con todas las mecánicas que esperar
 - **Sistema de puntuación** clásico de Tetris (100 / 300 / 500 / 800 multiplicado por nivel).
 - **Niveles** que aumentan cada 10 líneas y aceleran la caída.
 - **Pausa** y **Game Over** con opción de reinicio.
+- **Skins visuales**: 4 estilos de dibujado (Retro, Neón, Pastel, Pixel art) seleccionables sin reiniciar la partida, persistidos en `localStorage`.
 
 ---
 
@@ -97,7 +98,7 @@ El juego se compone de tres archivos que cooperan:
 Define la estructura visual:
 
 - Un `<canvas id="board">` de **300 × 600** píxeles donde se renderiza el tablero.
-- Un panel lateral con `SCORE`, `LINES`, `LEVEL`, vista de la siguiente pieza y la lista de controles.
+- Un panel lateral con `SCORE`, `LINES`, `LEVEL`, vista de la siguiente pieza, el selector de `SKIN` y la lista de controles.
 - Un overlay para los estados **PAUSA** y **GAME OVER**.
 
 ### 2. `style.css`
@@ -123,6 +124,13 @@ Contiene toda la lógica del juego. A grandes rasgos:
 - **Puntuación**: usa la tabla clásica `[0, 100, 300, 500, 800]` multiplicada por el nivel actual; el hard drop suma 2 puntos por celda recorrida y el soft drop 1 punto por fila.
 - **Nivel y velocidad**: el nivel sube cada 10 líneas; la velocidad de caída se calcula como `max(100, 1000 − (level − 1) × 90)` milisegundos.
 - **Ghost piece** (`ghostY`): proyecta la posición final de la pieza actual hacia abajo y la dibuja con `globalAlpha = 0.2`.
+- **Skins visuales** (constante `SKINS`, sección `// ==== SKINS ====`): cada skin define `{ id, label, colors, boardBg, gridColor, drawBlock }` y el render se despacha a través de la skin activa (`activeSkin`) en vez de leer constantes globales fijas. `drawBlock`, `drawGrid` y `drawNutHole` delegan en la skin activa manteniendo su firma original, así `drawPiece()`, `draw()` y `drawNext()` no necesitan saber nada sobre skins.
+  - 🕹️ **Retro**: el render clásico del juego (idéntico al original), skin por defecto.
+  - 💡 **Neón**: fondo de tablero negro y efecto *glow* (`shadowBlur`/`shadowColor`) en cada bloque; usa `context.save()/restore()` para que el resplandor nunca contamine la rejilla, el ghost, el flash de power-up ni la vista NEXT.
+  - 🎀 **Pastel**: paleta de colores suaves con esquinas redondeadas (`context.roundRect()`, con *fallback* manual si el navegador no lo soporta).
+  - 🟪 **Pixel art**: textura de dithering (píxeles alternos más claros/oscuros) dibujada sobre cada bloque, respetando el tamaño de celda variable.
+  - **Convivencia con el tema claro/oscuro**: la skin manda sobre los colores del canvas (bloques, rejilla, fondo del tablero); el tema sigue mandando sobre el CSS de la página (fondo general, textos, panel). Excepción: Retro conserva el borde oscuro en los bloques cuando el tema es claro, igual que antes de existir las skins.
+  - Selector `<select id="skin-select">` en el panel lateral; al cambiar de skin se re-dibuja con `draw()` + `drawNext()` sin reiniciar la partida, y se persiste en `localStorage` bajo `SKIN_KEY = 'tetris-skin'`.
 
 ### Flujo del juego
 
@@ -186,6 +194,8 @@ Algunos parámetros fáciles de tunear en `game.js`:
 | `POWERUP_CHANCE` | Probabilidad de que salga un power-up  | `1/5`                 |
 | `FREEZE_MS`    | Duración del power-up Congelar en ms     | `5000`                |
 | `POWER_CELL_SCORE` | Puntos por celda destruida por un poder (× nivel) | `10`      |
+| `SKINS`        | Skins visuales disponibles (colores, fondo, rejilla y render por bloque) | `retro`, `neon`, `pastel`, `pixel` |
+| `SKIN_KEY`     | Clave de `localStorage` para la skin elegida | `'tetris-skin'` |
 
 > Si cambias `COLS`, `ROWS` o `BLOCK`, recuerda ajustar también `width` y `height` del `<canvas id="board">` en `index.html` para que coincida (`COLS × BLOCK` × `ROWS × BLOCK`).
 
