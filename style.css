@@ -251,3 +251,26 @@ kbd {
 #restart-btn:hover {
   background: var(--restart-bg-hover);
 }
+
+/* ==== SKINS ==== */
+
+.skin-select {
+  background: var(--kbd-bg);
+  color: var(--text);
+  border: 1px solid var(--kbd-border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.skin-select:hover {
+  border-color: var(--value-color);
+}
+
+.skin-select:focus-visible {
+  outline: 2px solid var(--value-color);
+  outline-offset: 2px;
+}
