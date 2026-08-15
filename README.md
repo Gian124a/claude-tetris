@@ -43,6 +43,7 @@ Es una versión jugable del Tetris clásico con todas las mecánicas que esperar
 - **Niveles** que aumentan cada 10 líneas y aceleran la caída.
 - **Pausa** y **Game Over** con opción de reinicio.
 - **Skins visuales**: 4 estilos de dibujado (Retro, Neón, Pastel, Pixel art) seleccionables sin reiniciar la partida, persistidos en `localStorage`.
+- **Tabla de records local**: top 5 puntuaciones guardadas en `localStorage`, con nombre, líneas, combo máximo y fecha. Pantalla de inicio con la tabla, las estadísticas globales derivadas de esas 5 entradas guardadas (mejor combo y máximo de líneas) y botón para resetear los records.
 
 ---
 
@@ -133,6 +134,11 @@ Contiene toda la lógica del juego. A grandes rasgos:
   - 🟪 **Pixel art**: textura de dithering (píxeles alternos más claros/oscuros) dibujada sobre cada bloque, respetando el tamaño de celda variable.
   - **Convivencia con el tema claro/oscuro**: la skin manda sobre los colores del canvas (bloques, rejilla, fondo del tablero); el tema sigue mandando sobre el CSS de la página (fondo general, textos, panel). Excepción: Retro conserva el borde oscuro en los bloques cuando el tema es claro, igual que antes de existir las skins.
   - Selector `<select id="skin-select">` en el panel lateral; al cambiar de skin se re-dibuja con `draw()` + `drawNext()` sin reiniciar la partida, y se persiste en `localStorage` bajo `SKIN_KEY = 'tetris-skin'`.
+- **Records** (`loadHighscores` / `saveHighscores`): persiste hasta 5 puntuaciones en `localStorage` (`tetris-highscores`), con lectura defensiva ante datos corruptos. Se trackea un **combo** de clears consecutivos (`combo` / `maxCombo`, reseteado en cada pieza que no completa línea) que se guarda junto a la puntuación.
+
+### Pantalla de inicio y records
+
+El juego ya no arranca solo: al cargar se muestra `#start-screen` con el título, el top 5 de puntuaciones, el mejor combo y el máximo de líneas de entre esas 5 partidas guardadas, y los botones **Jugar** y **Resetear records** (con confirmación in-page: un primer click cambia el texto a "¿Seguro?" y expira a los pocos segundos si no se confirma). Al terminar una partida (`endGame`), si la puntuación entra en el top 5 se muestra un formulario para introducir el nombre (`#records-form`) antes de guardarla; la fila recién insertada se resalta en la tabla.
 
 ### Flujo del juego
 
