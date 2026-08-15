@@ -42,6 +42,7 @@ Es una versión jugable del Tetris clásico con todas las mecánicas que esperar
 - **Sistema de puntuación** clásico de Tetris (100 / 300 / 500 / 800 multiplicado por nivel).
 - **Niveles** que aumentan cada 10 líneas y aceleran la caída.
 - **Pausa** y **Game Over** con opción de reinicio.
+- **Tabla de records local**: top 5 puntuaciones guardadas en `localStorage`, con nombre, líneas, combo máximo y fecha. Pantalla de inicio con la tabla, las estadísticas globales derivadas de esas 5 entradas guardadas (mejor combo y máximo de líneas) y botón para resetear los records.
 
 ---
 
@@ -117,6 +118,11 @@ Contiene toda la lógica del juego. A grandes rasgos:
 - **Puntuación**: usa la tabla clásica `[0, 100, 300, 500, 800]` multiplicada por el nivel actual; el hard drop suma 2 puntos por celda recorrida y el soft drop 1 punto por fila.
 - **Nivel y velocidad**: el nivel sube cada 10 líneas; la velocidad de caída se calcula como `max(100, 1000 − (level − 1) × 90)` milisegundos.
 - **Ghost piece** (`ghostY`): proyecta la posición final de la pieza actual hacia abajo y la dibuja con `globalAlpha = 0.2`.
+- **Records** (`loadHighscores` / `saveHighscores`): persiste hasta 5 puntuaciones en `localStorage` (`tetris-highscores`), con lectura defensiva ante datos corruptos. Se trackea un **combo** de clears consecutivos (`combo` / `maxCombo`, reseteado en cada pieza que no completa línea) que se guarda junto a la puntuación.
+
+### Pantalla de inicio y records
+
+El juego ya no arranca solo: al cargar se muestra `#start-screen` con el título, el top 5 de puntuaciones, el mejor combo y el máximo de líneas de entre esas 5 partidas guardadas, y los botones **Jugar** y **Resetear records** (con confirmación in-page: un primer click cambia el texto a "¿Seguro?" y expira a los pocos segundos si no se confirma). Al terminar una partida (`endGame`), si la puntuación entra en el top 5 se muestra un formulario para introducir el nombre (`#records-form`) antes de guardarla; la fila recién insertada se resalta en la tabla.
 
 ### Flujo del juego
 

@@ -243,3 +243,136 @@ kbd {
 #restart-btn:hover {
   background: var(--restart-bg-hover);
 }
+
+/* ==== RECORDS ==== */
+
+:root {
+  --highlight-bg: rgba(122, 162, 247, 0.25);
+  --table-border: rgba(255, 255, 255, 0.08);
+}
+
+body.light-theme {
+  --highlight-bg: rgba(59, 91, 219, 0.15);
+  --table-border: rgba(0, 0, 0, 0.08);
+}
+
+.start-overlay {
+  position: fixed;
+  inset: 0;
+  border-radius: 0;
+  z-index: 10;
+}
+
+.start-overlay .overlay-box {
+  max-width: 420px;
+  width: 90vw;
+}
+
+.records-table {
+  width: 100%;
+  margin: 8px 0;
+}
+
+.records-empty {
+  font-size: 13px;
+  color: var(--muted-text);
+}
+
+.records-table-el {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.records-table-el th,
+.records-table-el td {
+  padding: 4px 6px;
+  text-align: center;
+  border-bottom: 1px solid var(--table-border);
+  color: var(--text);
+}
+
+.records-table-el th {
+  color: var(--label-color);
+  font-size: 10px;
+  letter-spacing: 1px;
+  font-weight: 600;
+}
+
+.record-highlight {
+  background: var(--highlight-bg);
+  font-weight: 700;
+}
+
+.global-stats {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--muted-text);
+  justify-content: center;
+}
+
+.global-stats span span {
+  color: var(--value-color);
+  font-weight: 700;
+}
+
+#records-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+/* .hidden por sí sola no aplica (la regla existente es .overlay.hidden);
+   este elemento no lleva la clase .overlay, así que necesita su propia regla. */
+#records-form.hidden {
+  display: none;
+}
+
+#player-name-input {
+  background: var(--kbd-bg);
+  border: 1px solid var(--kbd-border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  width: 130px;
+}
+
+#player-name-input:focus-visible {
+  outline: 2px solid var(--value-color);
+  outline-offset: 2px;
+}
+
+#save-record-btn,
+#play-btn,
+#reset-records-btn {
+  background: var(--restart-bg);
+  color: var(--restart-text);
+  border: none;
+  border-radius: 6px;
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.5px;
+  transition: background 0.15s;
+}
+
+#save-record-btn:hover,
+#play-btn:hover,
+#reset-records-btn:hover {
+  background: var(--restart-bg-hover);
+}
+
+#reset-records-btn {
+  background: transparent;
+  border: 1px solid var(--kbd-border);
+  color: var(--muted-text);
+}
+
+#reset-records-btn:hover {
+  background: var(--kbd-bg);
+  color: var(--text);
+}
