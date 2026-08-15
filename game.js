@@ -14,6 +14,7 @@ const COLORS = [
   '#90caf9', // J - blue (pale)
   '#ffb74d', // L - orange
   '#b0bec5', // Tuerca - gris metálico
+  '#ffd700', // Comodín (Tinte) - dorado
 ];
 
 const PIECES = [
@@ -31,6 +32,21 @@ const PIECES = [
 const NUT = 8;
 const NUT_CHANCE = 1 / 12;
 
+const WILD = 9;   // comodín dorado: vive en el tablero
+const POWER = 10; // celda de una pieza power-up: nunca llega al tablero
+
+const POWERUPS = [
+  { id: 'bomb',    icon: '💣', color: '#ff7043', label: 'BOMBA' },
+  { id: 'bolt',    icon: '⚡', color: '#fff176', label: 'RAYO' },
+  { id: 'dye',     icon: '🎨', color: '#ce93d8', label: 'TINTE' },
+  { id: 'gravity', icon: '⬇️', color: '#4db6ac', label: 'GRAVEDAD' },
+  { id: 'freeze',  icon: '❄️', color: '#81d4fa', label: 'CONGELAR' },
+];
+const POWERUP_CHANCE = 1 / 5;
+const FREEZE_MS = 5000;
+const POWER_CELL_SCORE = 10; // puntos por celda destruida por un poder, × level
+const FLASH_MS = 900; // duración del aviso flotante al detonar un poder
+
 const LINE_SCORES = [0, 100, 300, 500, 800];
 
 const GRID_COLORS = { dark: '#22222e', light: '#dfe1ea' };
@@ -43,6 +59,7 @@ const nextCtx = nextCanvas.getContext('2d');
 const scoreEl = document.getElementById('score');
 const linesEl = document.getElementById('lines');
 const levelEl = document.getElementById('level');
+const freezeTimerEl = document.getElementById('freeze-timer');
 const overlay = document.getElementById('overlay');
 const overlayTitle = document.getElementById('overlay-title');
 const overlayScore = document.getElementById('overlay-score');
@@ -51,12 +68,18 @@ const themeToggleBtn = document.getElementById('theme-toggle');
 
 let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
 let theme = 'dark';
+let freezeLeft = 0; // ms restantes de congelación (power-up "freeze")
+let flash = null;   // aviso flotante al detonar un poder: { power, left }
 
 function createBoard() {
   return Array.from({ length: ROWS }, () => new Array(COLS).fill(0));
 }
 
 function randomPiece() {
+  if (Math.random() < POWERUP_CHANCE) {
+    const power = POWERUPS[Math.floor(Math.random() * POWERUPS.length)];
+    return { type: POWER, power, shape: [[POWER]], x: Math.floor(COLS / 2), y: 0 };
+  }
   const type = Math.random() < NUT_CHANCE ? NUT : Math.floor(Math.random() * 7) + 1;
   const shape = PIECES[type].map(row => [...row]);
   return { type, shape, x: Math.floor(COLS / 2) - Math.floor(shape[0].length / 2), y: 0 };
@@ -103,7 +126,7 @@ function merge() {
         board[current.y + r][current.x + c] = current.shape[r][c];
 }
 
-function clearLines() {
+function removeFullRows() {
   let cleared = 0;
   for (let r = ROWS - 1; r >= 0; r--) {
     if (board[r].every(v => v !== 0)) {
@@ -113,6 +136,26 @@ function clearLines() {
       r++;
     }
   }
+  return cleared;
+}
+
+function applyGravity() {
+  for (let c = 0; c < COLS; c++) {
+    const stack = [];
+    for (let r = ROWS - 1; r >= 0; r--) if (board[r][c]) stack.push(board[r][c]);
+    for (let r = ROWS - 1, i = 0; r >= 0; r--, i++) board[r][c] = stack[i] ?? 0;
+  }
+}
+
+function clearLines() {
+  let cleared = removeFullRows();
+  if (cleared && board.some(row => row.includes(WILD))) {
+    for (let r = 0; r < ROWS; r++)
+      for (let c = 0; c < COLS; c++)
+        if (board[r][c] === WILD) board[r][c] = 0;
+    applyGravity();
+    cleared += removeFullRows(); // cascada: la compactación puede completar más filas
+  }
   if (cleared) {
     lines += cleared;
     score += (LINE_SCORES[cleared] || 0) * level;
@@ -120,6 +163,59 @@ function clearLines() {
     dropInterval = Math.max(100, 1000 - (level - 1) * 90);
     updateHUD();
   }
+}
+
+function applyPower(power, px, py) {
+  let destroyed = 0;
+  switch (power.id) {
+    case 'bomb':
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          const r = py + dr, c = px + dc;
+          if (r >= 0 && r < ROWS && c >= 0 && c < COLS && board[r][c]) {
+            board[r][c] = 0;
+            destroyed++;
+          }
+        }
+      }
+      break;
+    case 'bolt':
+      if (py >= 0 && py < ROWS) {
+        for (let c = 0; c < COLS; c++) {
+          if (board[py][c]) destroyed++;
+          board[py][c] = 0;
+        }
+      }
+      for (let r = 0; r < ROWS; r++) {
+        if (r === py) continue; // ya contada arriba
+        if (px >= 0 && px < COLS && board[r][px]) destroyed++;
+        if (px >= 0 && px < COLS) board[r][px] = 0;
+      }
+      break;
+    case 'dye': {
+      const counts = new Array(COLORS.length).fill(0);
+      for (let r = 0; r < ROWS; r++)
+        for (let c = 0; c < COLS; c++)
+          if (board[r][c] >= 1 && board[r][c] <= NUT) counts[board[r][c]]++;
+      let bestColor = 0, bestCount = 0;
+      for (let i = 1; i <= NUT; i++) if (counts[i] > bestCount) { bestCount = counts[i]; bestColor = i; }
+      if (bestColor) {
+        for (let r = 0; r < ROWS; r++)
+          for (let c = 0; c < COLS; c++)
+            if (board[r][c] === bestColor) board[r][c] = WILD;
+      }
+      break;
+    }
+    case 'gravity':
+      applyGravity();
+      break;
+    case 'freeze':
+      freezeLeft = FREEZE_MS;
+      break;
+  }
+  if (destroyed) score += destroyed * POWER_CELL_SCORE * level;
+  flash = { power, left: FLASH_MS };
+  updateHUD();
 }
 
 function ghostY() {
@@ -146,7 +242,8 @@ function softDrop() {
 }
 
 function lockPiece() {
-  merge();
+  if (current.power) applyPower(current.power, current.x, current.y);
+  else merge();
   clearLines();
   spawn();
 }
@@ -165,6 +262,12 @@ function updateHUD() {
   scoreEl.textContent = score.toLocaleString();
   linesEl.textContent = lines;
   levelEl.textContent = level;
+  if (freezeLeft > 0) {
+    freezeTimerEl.textContent = `❄️ ${(freezeLeft / 1000).toFixed(1)}s`;
+    freezeTimerEl.classList.remove('hidden');
+  } else {
+    freezeTimerEl.classList.add('hidden');
+  }
 }
 
 function drawBlock(context, x, y, colorIndex, size, alpha) {
@@ -198,6 +301,30 @@ function drawNutHole(context, x, y, size, alpha) {
   context.lineWidth = 1;
   context.stroke();
   context.globalAlpha = 1;
+}
+
+function drawPowerBlock(context, x, y, size, power, alpha) {
+  context.globalAlpha = alpha ?? 1;
+  context.fillStyle = power.color;
+  context.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
+  context.font = `${Math.floor(size * 0.6)}px serif`;
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillText(power.icon, (x + 0.5) * size, (y + 0.5) * size + 1);
+  context.globalAlpha = 1;
+}
+
+// Dibuja cualquier pieza (normal, tuerca o power-up) con offset (ox, oy) en celdas.
+function drawPiece(context, piece, ox, oy, size, alpha) {
+  for (let r = 0; r < piece.shape.length; r++) {
+    for (let c = 0; c < piece.shape[r].length; c++) {
+      const v = piece.shape[r][c];
+      if (!v) continue;
+      if (piece.power) drawPowerBlock(context, ox + c, oy + r, size, piece.power, alpha);
+      else drawBlock(context, ox + c, oy + r, v, size, alpha);
+    }
+  }
+  if (piece.type === NUT) drawNutHole(context, ox + 1, oy + 1, size, alpha);
 }
 
 function drawGrid() {
@@ -236,19 +363,21 @@ function draw() {
 
   // ghost
   const gy = ghostY();
-  for (let r = 0; r < current.shape.length; r++)
-    for (let c = 0; c < current.shape[r].length; c++)
-      if (current.shape[r][c])
-        drawBlock(ctx, current.x + c, gy + r, current.shape[r][c], BLOCK, 0.2);
-  if (current.type === NUT)
-    drawNutHole(ctx, current.x + 1, gy + 1, BLOCK, 0.2);
+  drawPiece(ctx, current, current.x, gy, BLOCK, 0.2);
 
   // current piece
-  for (let r = 0; r < current.shape.length; r++)
-    for (let c = 0; c < current.shape[r].length; c++)
-      drawBlock(ctx, current.x + c, current.y + r, current.shape[r][c], BLOCK);
-  if (current.type === NUT)
-    drawNutHole(ctx, current.x + 1, current.y + 1, BLOCK);
+  drawPiece(ctx, current, current.x, current.y, BLOCK);
+
+  // aviso flotante al detonar un poder
+  if (flash) {
+    ctx.globalAlpha = Math.max(0, Math.min(1, flash.left / FLASH_MS));
+    ctx.fillStyle = flash.power.color;
+    ctx.font = 'bold 28px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${flash.power.icon} ${flash.power.label}`, canvas.width / 2, canvas.height / 2);
+    ctx.globalAlpha = 1;
+  }
 }
 
 function isNutHole(b, r, c) {
@@ -264,11 +393,12 @@ function drawNext() {
   const shape = next.shape;
   const offX = Math.floor((4 - shape[0].length) / 2);
   const offY = Math.floor((4 - shape.length) / 2);
-  for (let r = 0; r < shape.length; r++)
-    for (let c = 0; c < shape[r].length; c++)
-      drawBlock(nextCtx, offX + c, offY + r, shape[r][c], NB);
-  if (next.type === NUT)
-    drawNutHole(nextCtx, offX + 1, offY + 1, NB);
+  if (next.power) {
+    // celda única: se dibuja ocupando casi todo el canvas 120x120, centrada
+    drawPowerBlock(nextCtx, 0, 0, nextCanvas.width, next.power);
+  } else {
+    drawPiece(nextCtx, next, offX, offY, NB);
+  }
 }
 
 function endGame() {
@@ -297,15 +427,24 @@ function togglePause() {
 function loop(ts) {
   const dt = ts - lastTime;
   lastTime = ts;
-  dropAccum += dt;
-  if (dropAccum >= dropInterval) {
-    dropAccum = 0;
-    if (!collide(current.shape, current.x, current.y + 1)) {
-      current.y++;
-    } else {
-      lockPiece();
+  if (freezeLeft > 0) {
+    freezeLeft = Math.max(0, freezeLeft - dt);
+  } else {
+    dropAccum += dt;
+    if (dropAccum >= dropInterval) {
+      dropAccum = 0;
+      if (!collide(current.shape, current.x, current.y + 1)) {
+        current.y++;
+      } else {
+        lockPiece();
+      }
     }
   }
+  if (flash) {
+    flash.left -= dt;
+    if (flash.left <= 0) flash = null;
+  }
+  updateHUD();
   draw();
   if (gameOver || paused) return;
   animId = requestAnimationFrame(loop);
@@ -320,6 +459,8 @@ function init() {
   gameOver = false;
   dropInterval = 1000;
   dropAccum = 0;
+  freezeLeft = 0;
+  flash = null;
   lastTime = performance.now();
   next = randomPiece();
   spawn();

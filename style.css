@@ -163,6 +163,14 @@ body {
   border-radius: 4px;
 }
 
+#freeze-timer {
+  color: #81d4fa;
+}
+
+.hidden {
+  display: none;
+}
+
 /* ---- Controles ---- */
 .controls ul {
   list-style: none;
